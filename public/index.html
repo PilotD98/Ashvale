@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ashvale — The Dragon of Frostspire</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="game"></div>
+<div id="loading"><div class="logo">ASHVALE</div><div class="dim">Shaping the world…</div></div>
+
+<div id="hud" class="hidden">
+  <div id="compass"><div id="compass-strip"></div><div id="compass-tick"></div></div>
+  <div id="target"><div id="target-name"></div><div class="bar"><div id="target-fill"></div></div></div>
+  <div id="crosshair"></div>
+  <div id="prompt"></div>
+  <div id="notifs"></div>
+  <div id="banner"><div class="t"></div><div class="s"></div></div>
+  <div id="quest-tracker"></div>
+  <div id="clock"></div>
+  <div id="bottom">
+    <div id="status"></div>
+    <div id="abilities"></div>
+    <div id="bars">
+      <div class="bar mp"><div id="mp-fill"></div></div>
+      <div class="bar hp"><div id="hp-fill"></div></div>
+      <div class="bar sp"><div id="sp-fill"></div></div>
+    </div>
+    <div id="xprow"><span id="level"></span><div class="xp"><div id="xp-fill"></div></div></div>
+  </div>
+  <div id="damage-flash"></div>
+</div>
+
+<div id="panel" class="hidden"></div>
+<div id="click-to-play" class="hidden"><div>Click to resume</div></div>
+<noscript>This game needs JavaScript and WebGL.</noscript>
+<script src="game.js"></script>
+</body>
+</html>

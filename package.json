@@ -1,0 +1,15 @@
+{
+  "name": "ashvale-rpg",
+  "version": "1.2.0",
+  "description": "Ashvale: The Dragon of Frostspire, a first-person fantasy RPG that runs in the browser",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "esbuild src/main.js --bundle --format=iife --target=es2020 --outfile=public/game.js --servedir=public --serve=8080 --watch"
+  },
+  "devDependencies": {
+    "esbuild": "0.24.0",
+    "three": "0.169.0"
+  }
+}
