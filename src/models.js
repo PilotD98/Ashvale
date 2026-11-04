@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { triMat, uvMat } from './textures.js';
+import { buildBody, buildHead, buildHand } from './human.js';
 import { faceMaterial, outfitMaterial, pantsMaterial, bootMaterial, skinMaterial, hairMaterial, furMaterial, helmMaterial, shieldMaterial,
   scaleMaterial, bellyMaterial, wingMaterial, hornMaterial, bladeMaterial } from './charTex.js';
 
@@ -66,82 +67,35 @@ const FORE = [[0.04, -0.29], [0.046, -0.24], [0.058, -0.1], [0.062, -0.03], [0.0
 const SKIRT = { tunic: [[0.29, -0.36], [0.255, -0.22], [0.228, -0.08], [0.21, 0.04], [0.2, 0.1]], robe: [[0.36, -0.86], [0.31, -0.55], [0.26, -0.25], [0.218, -0.02], [0.2, 0.1]] };
 
 export function humanoid(o = {}) {
-  const g = new THREE.Group(), rig = new THREE.Group(); g.add(rig);
-  const s = o.scale ?? 1, B = BODY[o.build ?? 'male'];
-  rig.scale.setScalar(s);
+  const g = new THREE.Group();
+  const s = o.scale ?? 1, female = o.build === 'female';
   const undead = !!o.undead;
   const outfit = o.outfit ?? { type: 'tunic', base: 0x6b5a45 };
   const torsoM = outfitMaterial(outfit, 'torso'), sleeveM = outfitMaterial(outfit, 'sleeve'), skirtM = outfitMaterial(outfit, 'skirt');
   const skin = skinMaterial(o.skin ?? 0xd9a882, undead), pants = pantsMaterial(o.pants ?? { base: 0x4a3b2a }), boots = bootMaterial(o.boots ?? 0x3a2a1c);
-
-  const hips = pivot(0, 0.94, 0); rig.add(hips);
-  { const hm = mesh(sphere(0.19), pants, 0, -0.02, 0); hm.scale.set(1.05, 0.6, 0.75); hips.add(hm); }
-  // legs with knees
-  const legs = [];
-  for (const sx of [-1, 1]) {
-    const thigh = pivot(sx * 0.1, -0.02, 0); hips.add(thigh);
-    thigh.add(mesh(lathe('thigh', THIGH), pants));
-    const knee = pivot(0, -0.44, 0); thigh.add(knee);
-    knee.add(mesh(lathe('shin', SHIN), pants));
-    knee.add(mesh(lathe('boot', BOOT), boots));
-    const foot = mesh(sphere(0.07), boots, 0, -0.44, 0.06); foot.scale.set(1.05, 0.62, 1.9); knee.add(foot);
-    legs.push({ thigh, knee });
-  }
-  // skirt / tunic hem (static on the hips) and belt
+  // one skinned mesh for the whole body so shoulders, elbows, hips and knees bend smoothly
+  const body = buildBody(female ? 'female' : 'male', { pants, boots, torso: torsoM, sleeve: sleeveM, fore: o.bareArms ? skin : sleeveM, skin });
+  const { rig, hips, spine, legs, arms } = body;
+  rig.scale.setScalar(s); g.add(rig);
+  // tunic hem / robe skirt, belt and pouch ride on the hips
   const skirtType = o.skirt === undefined ? 'tunic' : o.skirt;
-  if (skirtType) { const sk = mesh(lathe('skirt' + skirtType, SKIRT[skirtType], 22, B.z + 0.05), skirtM, 0, 0.0, 0); hips.add(sk); }
-  const belt = mesh(G_('belt', () => new THREE.TorusGeometry(0.2, 0.026, 6, 24)), bootMaterial(o.belt ?? 0x2b2018), 0, 0.07, 0); belt.rotation.x = Math.PI / 2; belt.scale.set(1, B.z + 0.06, 1); hips.add(belt);
-  hips.add(mesh(G_('buckle', () => new THREE.BoxGeometry(0.055, 0.045, 0.02)), metalM(0xb09040), 0, 0.07, 0.15));
-  const pouch = mesh(G_('pouch', () => new THREE.BoxGeometry(0.08, 0.09, 0.05)), bootMaterial(0x5a3a22), 0.16, 0.0, 0.08); pouch.rotation.y = 0.5; hips.add(pouch);
-
-  // spine (everything above the waist)
-  const spine = pivot(0, 0.08, 0); hips.add(spine);
-  spine.add(mesh(lathe('torso' + (o.build ?? 'male'), B.torso, 22, B.z), torsoM));
-  const neck = mesh(lathe('neck', [[0.05, 0.6], [0.048, 0.7], [0.046, 0.74]]), skin); spine.add(neck);
-  // arms with elbows
-  const arms = [];
-  for (const sx of [-1, 1]) {
-    const sh = pivot(sx * B.sh, 0.5, 0); spine.add(sh);
-    sh.add(mesh(sphere(0.078), sleeveM, 0, 0, 0));
-    sh.add(mesh(lathe('upper', UPPER), sleeveM));
-    const el = pivot(0, -0.31, 0); sh.add(el);
-    el.add(mesh(lathe('fore', FORE), o.bareArms ? skin : sleeveM));
-    const hand = pivot(0, -0.33, 0.005); el.add(hand);
-    const handM = o.gloves !== undefined ? bootMaterial(o.gloves) : skin;
-    const palm = mesh(sphere(0.045), handM); palm.scale.set(0.85, 1.25, 0.65); hand.add(palm);
-    const thumb = mesh(capsule(0.016, 0.04), handM, -sx * 0.035, 0.01, 0.02); thumb.rotation.z = sx * 0.6; hand.add(thumb);
-    if (o.pauldrons) {
-      const pm = o.pauldrons === 'fur' ? furMaterial(o.mantle ?? 0x6a5a48, o.mantle ?? 0x6a5a48) : o.pauldrons === 'metal' ? helmMaterial(o.helmet?.col ?? 0x8a8a8a, { rust: o.helmet?.rust }) : bootMaterial(0x4a3020);
-      const pd = mesh(G_('pauld', () => new THREE.SphereGeometry(0.105, 14, 8, 0, Math.PI * 2, 0, Math.PI * 0.5)), pm, 0, 0.02, 0); pd.scale.set(1.1, 0.9, 1.15); sh.add(pd);
-    }
-    arms.push({ sh, el, hand });
+  if (skirtType) hips.add(mesh(lathe('skirt' + skirtType + female, SKIRT[skirtType].map(([r, y]) => [r * (female ? 0.95 : 0.88), y]), 24, body.tz + 0.08), skirtM));
+  const belt = mesh(G_('belt', () => new THREE.TorusGeometry(0.175, 0.022, 6, 24)), bootMaterial(o.belt ?? 0x2b2018), 0, 0.07, 0); belt.rotation.x = Math.PI / 2; belt.scale.set(1, body.tz + 0.08, 1); hips.add(belt);
+  hips.add(mesh(G_('buckle', () => new THREE.BoxGeometry(0.05, 0.04, 0.018)), metalM(0xb09040), 0, 0.07, 0.138));
+  const pouch = mesh(G_('pouch', () => new THREE.BoxGeometry(0.07, 0.08, 0.045)), bootMaterial(0x5a3a22), 0.15, 0.0, 0.07); pouch.rotation.y = 0.5; hips.add(pouch);
+  // hands with fingers
+  const handM = o.gloves !== undefined ? bootMaterial(o.gloves) : skin;
+  arms.forEach((a, i) => a.hand.add(buildHand(handM, i === 0 ? -1 : 1, female)));
+  if (o.pauldrons) for (const a of arms) {
+    const pm = o.pauldrons === 'fur' ? furMaterial(o.mantle ?? 0x6a5a48, o.mantle ?? 0x6a5a48) : o.pauldrons === 'metal' ? helmMaterial(o.helmet?.col ?? 0x8a8a8a, { rust: o.helmet?.rust }) : bootMaterial(0x4a3020);
+    const pd = mesh(G_('pauld', () => new THREE.SphereGeometry(0.095, 14, 8, 0, Math.PI * 2, 0, Math.PI * 0.5)), pm, 0, 0.025, 0); pd.scale.set(1.1, 0.9, 1.15); a.sh.add(pd);
   }
-  // head
-  const head = pivot(0, 0.72, 0.005); spine.add(head);
-  const face = o.face ?? {};
-  const faceM = faceMaterial({ skin: o.skin ?? 0xd9a882, hair: o.hairStyle === 'bald' ? undefined : o.hair, undead, ...face });
-  const skull = mesh(headGeo(), faceM, 0, 0.11, 0); head.add(skull);
-  const nose = mesh(G_('nose', () => { const c = new THREE.ConeGeometry(0.017, 0.055, 8); c.rotateX(Math.PI / 2); c.scale(1, 1.3, 1); return c; }), skin, 0, 0.1, 0.122); head.add(nose);
-  if (undead) nose.visible = false;
-  for (const sx of [-1, 1]) { const ear = mesh(sphere(0.02, 8, 6), skin, sx * 0.108, 0.11, -0.005); ear.scale.set(0.6, 1.6, 1.1); head.add(ear); }
-  const hairM = o.hair !== undefined ? hairMaterial(o.hair) : null;
-  const hs = o.hairStyle ?? 'short';
-  if (hairM && hs !== 'bald' && !o.helmet && !o.hood) {
-    const cap = mesh(G_('hcap', () => new THREE.SphereGeometry(HEAD_R * 1.08, 24, 14, 0, Math.PI * 2, 0, Math.PI * 0.5)), hairM, 0, 0.14, -0.012); cap.scale.set(0.97, 1.08, 1.05); cap.rotation.x = -0.45; head.add(cap);
-    const back = mesh(sphere(HEAD_R * 1.02), hairM, 0, 0.105, -0.038); back.scale.set(0.96, 1.05, 0.82); head.add(back);
-    if (hs === 'long') { const l = mesh(capsule(0.085, 0.22), hairM, 0, -0.04, -0.07); l.scale.set(1.35, 1, 0.5); head.add(l); }
-    if (hs === 'bun') head.add(mesh(sphere(0.055), hairM, 0, 0.2, -0.09));
-    if (hs === 'braid') for (let i = 0; i < 7; i++) head.add(mesh(sphere(0.032 - i * 0.002), hairM, 0, 0.04 - i * 0.055, -0.115 - i * 0.01));
-    if (hs === 'ponytail') { const pt = mesh(capsule(0.035, 0.2), hairM, 0, 0.0, -0.13); pt.rotation.x = 0.35; head.add(pt); }
-  }
-  if (o.beard !== undefined) {
-    const bm = hairMaterial(o.beard);
-    // beard hugs the jaw (open at the top so the face stays visible)
-    const b = mesh(G_('beard', () => new THREE.SphereGeometry(0.104, 18, 10, Math.PI * 0.08, Math.PI * 0.84, Math.PI * 0.6, Math.PI * 0.4)), bm, 0, 0.1, 0.012);
-    b.material = bm; b.scale.set(0.93, 1.1 + (o.beardStyle === 'long' ? 0.7 : 0), 1.12); head.add(b);
-    const mus = mesh(capsule(0.011, 0.045), bm, 0, 0.072, 0.118); mus.rotation.z = Math.PI / 2; head.add(mus);
-    if (o.beardStyle === 'braided') for (let i = 0; i < 4; i++) head.add(mesh(sphere(0.022), bm, 0, -0.05 - i * 0.04, 0.09 - i * 0.005));
-  }
+  // sculpted head with eyes, eyelids, hair cards and beard
+  const headBone = body.head;
+  const headG = buildHead({ skin: o.skin ?? 0xd9a882, female, undead, hair: o.hair, hairStyle: o.hairStyle, beard: o.beard, beardStyle: o.beardStyle, face: o.face, helmet: !!o.helmet, hood: o.hood !== undefined });
+  headBone.add(headG);
+  const head = headBone;
+  const B = { z: body.tz };
   if (o.hood !== undefined) {
     const hm = outfitMaterial({ type: 'tunic', base: o.hood }, 'plain');
     const hood = mesh(G_('hood', () => new THREE.SphereGeometry(HEAD_R * 1.35, 24, 14, Math.PI * 0.5 + 0.95, Math.PI * 2 - 1.9, 0, Math.PI * 0.72)), hm, 0, 0.11, -0.01);
@@ -165,7 +119,7 @@ export function humanoid(o = {}) {
   }
   if (o.mantle !== undefined) {
     const fm = furMaterial(o.mantle, o.mantle);
-    const mt = mesh(G_('mantle', () => new THREE.TorusGeometry(0.17, 0.085, 10, 24)), fm, 0, 0.58, -0.01); mt.rotation.x = Math.PI / 2; mt.scale.set(1.15, B.z + 0.2, 1); spine.add(mt);
+    const mt = mesh(G_('mantle', () => new THREE.TorusGeometry(0.16, 0.07, 10, 28)), fm, 0, 0.57, -0.01); mt.rotation.x = Math.PI / 2; mt.scale.set(1.2, B.z + 0.22, 0.7); spine.add(mt);
   }
   if (o.cape !== undefined) {
     const cm = outfitMaterial({ type: 'tunic', base: o.cape, trim: o.capeTrim ?? o.cape }, 'skirt');
@@ -184,7 +138,7 @@ export function humanoid(o = {}) {
     sh.rotation.z = Math.PI / 2; sh.position.set(-0.06, -0.12, 0.05); arms[0].el.add(sh);
   }
   g.userData.parts = { rig, hips, spine, head, legL: legs[0].thigh, legR: legs[1].thigh, kneeL: legs[0].knee, kneeR: legs[1].knee,
-    armL: arms[0].sh, armR: arms[1].sh, elbowL: arms[0].el, elbowR: arms[1].el };
+    armL: arms[0].sh, armR: arms[1].sh, elbowL: arms[0].el, elbowR: arms[1].el, lids: headG.userData.lids };
   return g;
 }
 
@@ -287,6 +241,13 @@ export function animHumanoid(p, s, dt) {
   p.legL.rotation.x = lT; p.legR.rotation.x = rT; p.kneeL.rotation.x = lK; p.kneeR.rotation.x = rK;
   p.armL.rotation.set(lS[0], lS[1], lS[2]); p.armR.rotation.set(rS[0], rS[1], rS[2]);
   p.elbowL.rotation.x = lE; p.elbowR.rotation.x = rE;
+  // blink every few seconds
+  if (p.lids && p.lids.length) {
+    s.blinkT = (s.blinkT ?? 2 + Math.random() * 3) - dt;
+    if (s.blinkT < -0.14) s.blinkT = 2 + Math.random() * 4;
+    const cl = s.deadT >= 0 ? 1 : s.blinkT < 0 ? Math.sin(-s.blinkT / 0.14 * Math.PI) : 0;
+    for (const l of p.lids) l.rotation.x = 0.12 + cl * 1.3;
+  }
 }
 
 // ------------------------------------------------------------------ quadrupeds

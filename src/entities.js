@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { G } from './state.js';
 import { ENEMIES, SPAWNS, LOCATIONS } from './data.js';
-import { ground, resolveCollision, addCircle, WATER } from './world.js';
+import { ground, resolveCollision, addCircle, WATER, lineOfSight } from './world.js';
 import { humanoid, quadruped, dragonModel, animHumanoid, animQuad } from './models.js';
 import { spawnProjectile, burst, flash } from './fx.js';
 import { sfx } from './audio.js';
@@ -19,11 +19,13 @@ function buildModel(type) {
     case 'wolf': return quadruped('wolf');
     case 'bear': return quadruped('bear');
     case 'bandit': {
+      // four face/hair variants (each unique face is a large texture), with randomized gear on top
+      const v = Math.floor(Math.random() * 4);
       const helm = Math.random() < 0.5, leather = pick([0x5a3a24, 0x4a3020, 0x6a4a2e]);
       return humanoid({
-        skin: pick([0xd9a882, 0xc89070, 0xe0b496]), hair: pick([0x2a1a10, 0x5a3418, 0x8a5a2a]), hairStyle: pick(['short', 'ponytail', 'long']),
-        beard: pick([0x2a1a10, 0x5a3418, 0x6a4020]), beardStyle: pick(['full', 'braided']),
-        face: { paint: Math.random() < 0.6 ? pick([0x8a1a1a, 0x1a1a1a, 0x2a3a6a]) : undefined, paintStyle: pick(['band', 'claws']), angry: true, scar: Math.random() < 0.3, eyeCol: pick([0x4a3a2a, 0x5a7a9a]) },
+        skin: [0xd9a882, 0xc89070, 0xe0b496, 0xd0a080][v], hair: [0x3a2618, 0x6a4422, 0x8a5a2a, 0x4a3020][v], hairStyle: ['short', 'ponytail', 'long', 'short'][v],
+        beard: [0x4a3020, 0x7a4a24, 0x8a5a2e, 0x6a4a30][v], beardStyle: ['full', 'braided', 'full', 'long'][v],
+        face: [{ paint: 0x8a1a1a, paintStyle: 'claws', scar: true, eyeCol: 0x4a3a2a }, { paint: 0x2a3a6a, paintStyle: 'band', eyeCol: 0x5a7a9a }, { scar: true, eyeCol: 0x5a6a4a, age: 0.3 }, { paint: 0x8a5a1a, paintStyle: 'claws', eyeCol: 0x4a3a2a, freckles: true }][v],
         outfit: { type: 'leather', base: leather, trim: 0x2a1a10 }, pants: { base: pick([0x3a2e22, 0x4a3a2a]), wraps: 0x6a5a40 }, boots: 0x2a1c12,
         mantle: Math.random() < 0.5 ? pick([0x6a5a48, 0x4a4038]) : undefined, pauldrons: Math.random() < 0.4 ? 'fur' : undefined,
         helmet: helm ? { col: 0x7a7a7a, rust: true } : undefined, gloves: 0x3a2618,
@@ -31,7 +33,7 @@ function buildModel(type) {
       });
     }
     case 'archer': return humanoid({
-      skin: pick([0xd9a882, 0xc89070]), hair: 0x6a3a1a, face: { paint: 0x2a2a2a, paintStyle: 'band', eyeCol: 0x4a6a3a },
+      skin: 0xd0a080, hair: 0x6a3a1a, face: { paint: 0x4a5a3a, paintStyle: 'band', eyeCol: 0x4a6a3a, female: true }, build: 'female',
       outfit: { type: 'leather', base: 0x4a4a32, trim: 0x2a2418, bracers: 0x3a2a1a }, pants: { base: 0x3a3022, wraps: 0x5a4a30 }, boots: 0x2a1c12,
       hood: 0x3a4a2a, cape: 0x3a4a2a, gloves: 0x3a2618, weapon: 'bow',
     });
@@ -137,6 +139,17 @@ function hitFlash(e, k) {
   for (const m of e.mats) m.emissive.copy(m.userData.e0).lerp(FLASH, k * 0.55);
 }
 
+// line-of-sight from an enemy's eyes to the player (cached briefly; it's a ray march)
+function canSee(e) {
+  const now = performance.now();
+  if (e.losT && now - e.losT < 250) return e.losOk;
+  const P = G.player;
+  const a = e.pos.clone(); a.y += e.def.height * 0.85;
+  const b = P.pos.clone(); b.y += 1.4;
+  e.losOk = lineOfSight(a, b); e.losT = now;
+  return e.losOk;
+}
+
 function faceTo(e, tx, tz, dt, rate = 8) {
   const target = Math.atan2(tx - e.pos.x, tz - e.pos.z);
   e.yaw += wrapAngle(target - e.yaw) * Math.min(1, dt * rate);
@@ -194,7 +207,7 @@ export function updateEnemies(dt) {
         e.wanderT -= dt;
         if (e.wanderT <= 0) { const a = Math.random() * 6.28, r = Math.random() * 9; e.wander = { x: e.home.x + Math.cos(a) * r, z: e.home.z + Math.sin(a) * r }; e.wanderT = rand(4, 9); }
         if (e.wander) { moveToward(e, e.wander.x, e.wander.z, spd * 0.3, dt); if (Math.hypot(e.wander.x - e.pos.x, e.wander.z - e.pos.z) < 0.5) e.wander = null; }
-        if (d < detectRange(e) && !P.dead && Math.abs(P.pos.y - e.pos.y) < 12) { e.state = 'chase'; alertNearby(e); }
+        if (d < detectRange(e) && !P.dead && Math.abs(P.pos.y - e.pos.y) < 12 && canSee(e)) { e.state = 'chase'; alertNearby(e); }
       } else if (e.fleeT > 0) {
         moveToward(e, e.pos.x - dx, e.pos.z - dz, spd * 0.9, dt);
         if (Math.random() < 0.05) burst(V.copy(e.pos).setY(e.pos.y + def.height + 0.2), 0xc08ad8, 1, 1, 0.5, 0.1, -1);
@@ -203,8 +216,12 @@ export function updateEnemies(dt) {
         else if (def.ranged) {
           if (d > def.range * 0.8) moveToward(e, P.pos.x, P.pos.z, spd, dt);
           else if (d < 7) moveToward(e, e.pos.x - dx, e.pos.z - dz, spd * 0.8, dt);
-          faceTo(e, P.pos.x, P.pos.z, dt);
-          if (d < def.range && e.cd <= 0 && e.atk <= 0) { e.cd = def.cd + Math.random() * 0.6; e.atk = 1; e.atkHit = false; }
+          faceTo(e, P.pos.x, P.pos.z, dt, 3.5);
+          // only draw when actually facing you with a clear shot; otherwise reposition
+          const facing = Math.abs(wrapAngle(Math.atan2(dx, dz) - e.yaw)) < 0.3;
+          const clear = canSee(e);
+          if (!clear) moveToward(e, P.pos.x, P.pos.z, spd, dt);
+          if (d < def.range && e.cd <= 0 && e.atk <= 0 && facing && clear) { e.cd = def.cd + Math.random() * 0.6; e.atk = 1; e.atkHit = false; }
         } else {
           const reach = def.range + 0.35;
           if (d > reach * 0.9) moveToward(e, P.pos.x, P.pos.z, spd, dt); else faceTo(e, P.pos.x, P.pos.z, dt);
@@ -223,10 +240,21 @@ export function updateEnemies(dt) {
       if (!e.atkHit && e.atk < 0.5 && e.atk > 0) {
         e.atkHit = true;
         if (def.ranged) {
-          const from = e.pos.clone(); from.y += 1.5;
-          const to = P.pos.clone(); to.y += 1.3; to.addScaledVector(P.vel, d / 38);
-          spawnProjectile({ kind: 'arrow', pos: from, dir: to.sub(from), speed: 38, owner: 'enemy', dmg: def.dmg, life: 2, src: e });
-          sfx.arrow();
+          // the arrow leaves along the archer's facing (not snapped to you), with human error and a gravity drop
+          const facing = Math.abs(wrapAngle(Math.atan2(dx, dz) - e.yaw)) < 0.45;
+          if (facing && canSee(e)) {
+            const from = e.pos.clone(); from.y += 1.5;
+            from.x += Math.sin(e.yaw) * 0.5; from.z += Math.cos(e.yaw) * 0.5;
+            const speed = 34, tFly = d / speed, grav = 9;
+            const to = P.pos.clone(); to.y += 1.2; to.addScaledVector(P.vel, tFly * 0.5);       // only partly leads a moving target
+            to.y += 0.5 * grav * tFly * tFly;                                                     // aim up to compensate for drop
+            const dir = to.sub(from).normalize();
+            const err = 0.035 + d * 0.0025 + (P.crouch ? 0.02 : 0);
+            dir.applyAxisAngle(new THREE.Vector3(0, 1, 0), (Math.random() - 0.5) * 2 * err);
+            dir.y += (Math.random() - 0.5) * 2 * err * 0.7;
+            spawnProjectile({ kind: 'arrow', pos: from, dir, speed, grav, owner: 'enemy', dmg: def.dmg, life: 2.5, src: e });
+            sfx.arrow();
+          }
         } else if (Math.hypot(P.pos.x - e.pos.x, P.pos.z - e.pos.z) < def.range + 0.8 && e.stunT <= 0 && !e.fleeT) damagePlayer(def.dmg, e, 'melee');
       }
     }
@@ -340,7 +368,7 @@ function updateDragon(e, dt) {
 export const NPC_DEFS = [
   { id: 'maren', name: 'Elder Maren', x: 0, z: -18, look: { build: 'female', skin: 0xe2b89a, hair: 0xd8d8d8, hairStyle: 'bun', face: { age: 1, eyeCol: 0x6a8aa8, female: true },
       outfit: { type: 'robe', base: 0x4a2e66, trim: 0x2a1840, accent: 0xd8b050, motif: 'knot' }, skirt: 'robe', cape: 0x2a1840, capeTrim: 0xd8b050, boots: 0x3a2a1c } },
-  { id: 'torvald', name: 'Torvald the Hunter', x: 6, z: 33, look: { skin: 0xd09878, hair: 0x6b4a2a, beard: 0x6b4a2a, beardStyle: 'full', face: { eyeCol: 0x4a6a3a, age: 0.4, scar: true },
+  { id: 'torvald', name: 'Torvald the Hunter', x: 6, z: 33, look: { skin: 0xd09878, hair: 0x7a5434, beard: 0x8a6038, beardStyle: 'full', face: { eyeCol: 0x4a6a3a, age: 0.4, scar: true },
       outfit: { type: 'leather', base: 0x5a4a30, trim: 0x2a1c10 }, pants: { base: 0x4a3a2a, wraps: 0x7a6a50 }, mantle: 0x8a7a5a, pauldrons: 'fur', gloves: 0x3a2618, weapon: 'bow' } },
   { id: 'brenna', name: 'Brenna the Smith', x: 9, z: 17.5, look: { build: 'female', skin: 0xe0ae8c, hair: 0xb8541a, hairStyle: 'braid', face: { female: true, eyeCol: 0x5a7a4a },
       outfit: { type: 'tunic', base: 0x6a3a2a, trim: 0x3a2018, accent: 0xc8a060, apron: 0x4a3020 }, bareArms: true, pants: { base: 0x3a3a3a }, gloves: 0x2a1a10, weapon: 'hammer' } },
@@ -348,9 +376,9 @@ export const NPC_DEFS = [
       outfit: { type: 'robe', base: 0x3a5a4a, trim: 0x2a3a2a, accent: 0xb8c890, motif: 'diamond' }, skirt: 'robe', hood: 0x2a3a2a, boots: 0x3a2a1c } },
   { id: 'ysolde', name: 'Ysolde the Trader', x: -16, z: 18.2, look: { build: 'female', skin: 0xc89070, hair: 0x2a1a0a, hairStyle: 'ponytail', face: { female: true, eyeCol: 0x5a3a20 },
       outfit: { type: 'robe', base: 0x8a6a2a, trim: 0x5a2a1a, accent: 0xe8d090, motif: 'diamond' }, skirt: 'robe', boots: 0x4a2a1c } },
-  { id: 'gunnar', name: 'Gunnar, Innkeeper', x: -17, z: -6, look: { skin: 0xe0ae8c, hair: 0x8a6a4a, hairStyle: 'bald', beard: 0x8a6a4a, beardStyle: 'long', face: { age: 0.6, eyeCol: 0x5a7a9a },
+  { id: 'gunnar', name: 'Gunnar, Innkeeper', x: -17, z: -6, look: { skin: 0xe0ae8c, hair: 0x8a6a4a, hairStyle: 'bald', beard: 0xa88058, beardStyle: 'long', face: { age: 0.6, eyeCol: 0x5a7a9a },
       outfit: { type: 'tunic', base: 0x7a6a5a, trim: 0x4a3a2a, accent: 0xc8b080, apron: 0xd8ccb0 }, pants: { base: 0x3a2a1a } } },
-  { id: 'rolf', name: 'Captain Rolf', x: -12, z: 36, look: { skin: 0xd8a080, hair: 0x4a3a2a, beard: 0x4a3a2a, beardStyle: 'full', face: { eyeCol: 0x5a7a9a, scar: true, age: 0.5 },
+  { id: 'rolf', name: 'Captain Rolf', x: -12, z: 36, look: { skin: 0xd8a080, hair: 0x5a4430, beard: 0x7a5a3c, beardStyle: 'full', face: { eyeCol: 0x5a7a9a, scar: true, age: 0.5 },
       outfit: { type: 'chain', tabard: 0x2a4a7a, accent: 0xd8b050 }, pants: { base: 0x3a3a3a, metal: true }, helmet: { col: 0x9a9a9a }, pauldrons: 'metal', cape: 0x2a4a7a, gloves: 0x3a2618,
       weapon: 'sword', shield: { paint: 0x2a4a7a, design: 'stripe' } } },
 ];

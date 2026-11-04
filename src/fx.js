@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { G } from './state.js';
-import { ground } from './world.js';
+import { ground, pointBlocked } from './world.js';
 import { mat } from './models.js';
 
 // ---------------- particles ----------------
@@ -113,7 +113,7 @@ export function updateFx(dt, hooks) {
     if (p.light) p.light.l.position.copy(p.mesh.position);
     const pos = p.mesh.position;
     let done = p.life <= 0;
-    if (!done && pos.y < ground(pos.x, pos.z)) { done = true; hooks.onImpact(p, null); }
+    if (!done && (pos.y < ground(pos.x, pos.z) || pointBlocked(pos.x, pos.y, pos.z))) { done = true; hooks.onImpact(p, null); }
     if (!done) {
       const hit = hooks.testHit(p);
       if (hit) { done = true; hooks.onImpact(p, hit); }

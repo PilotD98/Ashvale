@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 
 // ------------------------------------------------------------------ canvas helpers
-function cv(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d')]; }
+function cv(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return [c, c.getContext('2d', { willReadFrequently: true })]; }
 let seed = 1;
 const rnd = () => { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; };
 const R = (a, b) => a + rnd() * (b - a);
@@ -72,6 +72,8 @@ function trimBand(x, y, w, hgt, base, accent, motif = 'zigzag') {
 
 // normal map from the luminance of a canvas (sobel), returns a linear texture
 function normalFrom(src, strength = 2.5, invert = false) {
+  // normal maps are built at half resolution: plenty for characters, and a quarter of the memory
+  if (src.width > 256) { const [hc, hx] = cv(src.width >> 1, src.height >> 1); hx.drawImage(src, 0, 0, hc.width, hc.height); src = hc; strength *= 0.6; }
   const w = src.width, h = src.height, sx = src.getContext('2d').getImageData(0, 0, w, h).data;
   const lum = new Float32Array(w * h);
   for (let i = 0; i < w * h; i++) lum[i] = (sx[i * 4] * 0.3 + sx[i * 4 + 1] * 0.59 + sx[i * 4 + 2] * 0.11) / 255 * (invert ? -1 : 1);
@@ -99,7 +101,9 @@ function cached(key, fn) { if (!cache.has(key)) { seed = 1 + [...key].reduce((a,
 function material(key, painter) {
   return cached(key, () => {
     const p = painter();
-    const m = new THREE.MeshStandardMaterial({ map: tex(p.c), normalMap: normalFrom(p.n_src || p.c, p.n ?? 2.5, p.n_inv), roughness: p.rough ?? 0.85, metalness: p.metal ?? 0, side: p.side ?? THREE.FrontSide });
+    const args = { map: tex(p.c), normalMap: normalFrom(p.n_src || p.c, p.n ?? 2.5, p.n_inv), roughness: p.rough ?? 0.85, metalness: p.metal ?? 0, side: p.side ?? THREE.FrontSide };
+    const m = p.phys ? new THREE.MeshPhysicalMaterial({ ...args, ...p.phys }) : new THREE.MeshStandardMaterial(args);
+    if (p.alphaTest) { m.alphaTest = p.alphaTest; m.map.wrapS = m.map.wrapT = THREE.ClampToEdgeWrapping; m.normalMap = null; }
     m.normalScale.set(1, 1);
     const k = p.bright ?? (p.metal > 0.5 ? 1.1 : 1.6); m.color.setRGB(k, k, k);
     if (p.e) { m.emissiveMap = tex(p.e); m.emissive = new THREE.Color(p.eCol ?? 0xffffff); m.emissiveIntensity = p.eI ?? 2.5; }
@@ -163,6 +167,30 @@ export function faceMaterial(o) {
       }
     }
     // stubble / beard shadow
+    if (o.beard !== undefined) {
+      // painted beard: sideburns down the jaw to the chin, with a mustache; the mouth stays visible
+      const bc = o.beard;
+      x.save();
+      x.beginPath();
+      x.moveTo(cx - 64, 104); x.quadraticCurveTo(cx - 70, 190, cx, 214); x.quadraticCurveTo(cx + 70, 190, cx + 64, 104);
+      x.lineTo(cx + 52, 104); x.quadraticCurveTo(cx + 44, 150, cx + 20, 152); x.quadraticCurveTo(cx, 146, cx - 20, 152); x.quadraticCurveTo(cx - 44, 150, cx - 52, 104);
+      x.closePath(); x.clip();
+      x.fillStyle = hex(bc, 0.9); x.fillRect(cx - 80, 95, 160, 130);
+      for (let i = 0; i < 1400; i++) {
+        const px = cx + R(-72, 72), py = R(100, 215), l = R(5, 13);
+        x.strokeStyle = hex(bc, R(0.55, 1.7), R(0.4, 0.9)); x.lineWidth = R(0.8, 1.6);
+        x.beginPath(); x.moveTo(px, py); x.quadraticCurveTo(px + (px - cx) * 0.05, py + l / 2, px + (cx - px) * 0.04, py + l); x.stroke();
+      }
+      x.restore();
+      // soft edge where the beard meets the cheeks
+      x.save(); x.globalAlpha = 0.35; for (let i = 0; i < 500; i++) { const a = R(0.2, Math.PI - 0.2), px = cx + Math.cos(a) * 54, py = 140 + Math.sin(a) * 40; x.fillStyle = hex(bc, R(0.7, 1.4)); x.fillRect(px + R(-6, 6), py + R(-6, 6), 1.3, 2.5); } x.restore();
+      // mustache
+      x.fillStyle = hex(bc, 0.95);
+      for (const sxm of [-1, 1]) { x.beginPath(); x.moveTo(cx, 152); x.quadraticCurveTo(cx + sxm * 12, 148, cx + sxm * 22, 160); x.quadraticCurveTo(cx + sxm * 12, 157, cx, 158); x.fill(); }
+      x.strokeStyle = hex(bc, 1.5, 0.6); x.lineWidth = 1; for (let i = 0; i < 30; i++) { const sxm = rnd() < 0.5 ? -1 : 1, px = cx + sxm * R(2, 18); x.beginPath(); x.moveTo(px, 151); x.lineTo(px + sxm * 3, 158); x.stroke(); }
+      // lower lip peeking out
+      x.fillStyle = hex(o.lip ?? 0xa86a5a, 0.9); x.beginPath(); x.ellipse(cx, 166, 9, 3, 0, 0, 7); x.fill();
+    }
     if (o.stubble) { x.save(); x.globalAlpha = 0.35; for (let i = 0; i < 1600; i++) { const a = rnd() * Math.PI, r = R(32, 62); const px = cx + Math.cos(a) * r * 0.9, py = 148 + Math.sin(a) * r * 0.55; if (py > 152) { x.fillStyle = hex(o.stubble, 0.6); x.fillRect(px, py, 1.2, 1.2); } } x.restore(); }
     // hair painted on the scalp (top + back of head)
     if (o.hair !== undefined && !o.bald) {
@@ -301,7 +329,8 @@ export function outfitMaterial(o, part = 'torso') {
       for (let i = 0; i < W; i += 40) { x.strokeStyle = 'rgba(210,190,150,0.6)'; x.lineWidth = 2; x.beginPath(); x.moveTo(i, H - 140); x.lineTo(i + 20, H - 40); x.stroke(); }
       mottle(x, W, H, 0.2, 'overlay');
     }
-    return { c, rough, metal, n, side: part === 'skirt' ? THREE.DoubleSide : THREE.FrontSide };
+    const phys = metal > 0.5 ? null : (t === 'leather' ? { clearcoat: 0.25, clearcoatRoughness: 0.6 } : { sheen: 0.7, sheenRoughness: 0.75, sheenColor: new THREE.Color(base).lerp(new THREE.Color(0xffffff), 0.35) });
+    return { c, rough, metal, n, phys, bright: 1.35, side: part === 'skirt' ? THREE.DoubleSide : THREE.FrontSide };
   });
 }
 
@@ -450,5 +479,120 @@ export function bladeMaterial(col = 0xc8ccd2) {
     x.strokeStyle = 'rgba(40,40,40,0.35)'; x.lineWidth = 1.5; for (let y = 20; y < 110; y += 18) { x.beginPath(); x.arc(W / 2, y, 7, 0, 7); x.stroke(); }
     mottle(x, W, H, 0.15, 'overlay');
     return { c, rough: 0.3, metal: 0.75, n: 1.5 };
+  });
+}
+
+
+// =====================================================================================
+// Realistic heads: skin, eyes and hair cards. Head UVs are sphere UVs; these helpers map
+// a direction on the head (x right, y up, z forward) to canvas pixels.
+// =====================================================================================
+export function dirUV(nx, ny, W, H) {
+  const nz = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny));
+  const u = Math.atan2(nz, -nx) / (Math.PI * 2), v = Math.acos(Math.max(-1, Math.min(1, ny))) / Math.PI;
+  return [((u % 1) + 1) % 1 * W, v * H];
+}
+// facial landmarks in head-direction space (shared with the head sculpt)
+export const FACE = { eye: [0.36, 0.13], brow: 0.3, noseTip: [0, -0.2], mouth: [0, -0.47], chin: [0, -0.78], cheek: [0.5, -0.12] };
+
+export function skinFaceMaterial(o) {
+  return material('rface' + JSON.stringify(o), () => {
+    const W = 1024, H = 512, [c, x] = cv(W, H), [hc, hx] = cv(W, H);
+    const P = (nx, ny) => dirUV(nx, ny, W, H);
+    const undead = !!o.undead, skin = new THREE.Color(o.skin ?? 0xd9a882).lerp(new THREE.Color(0xc8b0a0), 0.18).getHex(), female = !!o.female, age = o.age ?? 0;
+    hx.fillStyle = '#808080'; hx.fillRect(0, 0, W, H);
+    x.fillStyle = hex(skin); x.fillRect(0, 0, W, H);
+    mottle(x, W, H, undead ? 0.45 : 0.1, 'overlay', 2); mottle(x, W, H, 0.06, 'multiply', 4);
+    const blob = (nx, ny, r, col, a, ctx = x, mode = 'source-over') => { const [px, py] = P(nx, ny); ctx.save(); ctx.globalCompositeOperation = mode; const g = ctx.createRadialGradient(px, py, 0, px, py, r); g.addColorStop(0, col.replace('A', a)); g.addColorStop(1, col.replace('A', 0)); ctx.fillStyle = g; ctx.fillRect(px - r, py - r, r * 2, r * 2); ctx.restore(); };
+    if (!undead) {
+      // blood flow: cheeks, nose, ears, chin are warmer
+      for (const s of [-1, 1]) { blob(s * 0.5, -0.15, 70, 'rgba(190,70,60,A)', 0.2); blob(s * 0.98, 0.0, 60, 'rgba(190,70,60,A)', 0.25); }
+      blob(0, -0.2, 40, 'rgba(190,80,70,A)', 0.22); blob(0, -0.75, 45, 'rgba(180,80,70,A)', 0.12);
+      // beard shadow / stubble zone
+      if (!female && o.stubble !== false) { x.save(); x.globalAlpha = o.beard !== undefined ? 0.4 : 0.16; for (let i = 0; i < 6000; i++) { const nx = R(-0.8, 0.8), ny = R(-0.95, -0.28); if (Math.abs(nx) < 0.18 && ny > -0.55 && ny < -0.38) continue; if (nx * nx + ny * ny > 0.9) continue; const [px, py] = P(nx, ny); x.fillStyle = hex(o.beard ?? 0x2a2018, 0.7); x.fillRect(px, py, 1.4, 1.4); } x.restore(); }
+      // under-eye & socket shading
+      for (const s of [-1, 1]) { blob(s * FACE.eye[0], FACE.eye[1] - 0.08, 26, 'rgba(90,50,60,A)', 0.18 + age * 0.15); blob(s * FACE.eye[0], FACE.eye[1] + 0.03, 30, 'rgba(70,40,40,A)', 0.2); }
+    } else {
+      for (const s of [-1, 1]) { blob(s * FACE.eye[0], FACE.eye[1], 46, 'rgba(10,8,6,A)', 0.95); blob(s * 0.45, -0.3, 60, 'rgba(20,25,15,A)', 0.5); }
+      x.strokeStyle = 'rgba(25,20,12,0.7)'; x.lineWidth = 1.2;
+      for (let i = 0; i < 120; i++) { let px = rnd() * W, py = rnd() * H; x.beginPath(); x.moveTo(px, py); for (let k = 0; k < 6; k++) { px += R(-14, 14); py += R(-14, 14); x.lineTo(px, py); } x.stroke(); }
+    }
+    // lips
+    { const [mx, my] = P(0, -0.47); const lw = female ? 52 : 46;
+      x.fillStyle = undead ? 'rgba(40,30,25,0.9)' : hex(o.lip ?? (female ? 0xb4645e : 0xa8706a), 1, 0.85);
+      x.beginPath(); x.moveTo(mx - lw, my); x.quadraticCurveTo(mx - lw * 0.4, my - 11, mx, my - 6); x.quadraticCurveTo(mx + lw * 0.4, my - 11, mx + lw, my); x.quadraticCurveTo(mx, my + (female ? 20 : 15), mx - lw, my); x.fill();
+      x.strokeStyle = 'rgba(70,25,25,0.75)'; x.lineWidth = 2; x.beginPath(); x.moveTo(mx - lw, my); x.quadraticCurveTo(mx, my + 3, mx + lw, my); x.stroke();
+      hx.strokeStyle = '#303030'; hx.lineWidth = 3; hx.beginPath(); hx.moveTo(mx - lw, my); hx.quadraticCurveTo(mx, my + 3, mx + lw, my); hx.stroke();
+      if (undead) { x.fillStyle = '#cfc2a0'; for (let i = -5; i <= 5; i++) x.fillRect(mx + i * 8 - 3, my - 4, 6, 9); } }
+    // eyebrows: many short hairs following the arch
+    if (!undead) for (const s of [-1, 1]) {
+      for (let i = 0; i < (female ? 140 : 260); i++) {
+        const t = rnd(), nx = s * (0.14 + t * 0.48), ny = FACE.brow + Math.sin(t * Math.PI) * 0.045 - t * 0.03 + R(-0.025, 0.025) * (female ? 0.5 : 1);
+        const [px, py] = P(nx, ny); x.strokeStyle = hex(o.brow ?? o.hair ?? 0x3a2a1a, R(0.6, 1.2), R(0.5, 0.9)); x.lineWidth = R(0.8, 1.6);
+        x.beginPath(); x.moveTo(px, py); x.lineTo(px + s * R(3, 7), py - R(0, 3)); x.stroke();
+      }
+    }
+    // lash line
+    if (!undead) for (const s of [-1, 1]) { const [ex, ey] = P(s * FACE.eye[0], FACE.eye[1]); x.strokeStyle = `rgba(30,15,10,${female ? 0.85 : 0.5})`; x.lineWidth = female ? 3 : 2; x.beginPath(); x.ellipse(ex, ey + 4, 30, 15, 0, Math.PI * 1.08, Math.PI * 1.92); x.stroke(); }
+    // age: forehead lines, crow's feet, nasolabial folds (drawn into both color and height)
+    const line = (pts, a, w = 1.5) => { for (const [ctx, col] of [[x, `rgba(110,60,50,${a})`], [hx, `rgba(20,20,20,${a * 1.6})`]]) { ctx.strokeStyle = col; ctx.lineWidth = w; ctx.beginPath(); pts.forEach(([nx, ny], i) => { const [px, py] = P(nx, ny); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }); ctx.stroke(); } };
+    if (age > 0) {
+      for (let i = 0; i < 3; i++) line([[-0.4, 0.5 + i * 0.07], [0, 0.48 + i * 0.07], [0.4, 0.5 + i * 0.07]], 0.3 * age);
+      for (const s of [-1, 1]) { for (let i = 0; i < 3; i++) line([[s * 0.55, 0.16 - i * 0.05], [s * 0.66, 0.2 - i * 0.07]], 0.35 * age, 1.2); line([[s * 0.12, -0.25], [s * 0.24, -0.4], [s * 0.26, -0.55]], 0.4 * age, 2); }
+    }
+    // freckles / moles
+    if (o.freckles) { x.save(); for (let i = 0; i < 160; i++) { const [px, py] = P(R(-0.5, 0.5), R(-0.3, 0.1)); x.fillStyle = `rgba(150,80,50,${R(0.15, 0.4)})`; x.beginPath(); x.arc(px, py, R(1, 2.5), 0, 7); x.fill(); } x.restore(); }
+    // scars and war paint
+    if (o.scar) line([[0.42, 0.42], [0.36, 0.05], [0.28, -0.25]], 0.7, 3.5);
+    if (o.paint) {
+      x.save(); x.globalAlpha = 0.5; x.fillStyle = hex(o.paint);
+      if (o.paintStyle === 'claws') for (let k = -1; k <= 1; k++) { x.beginPath(); const a = P(0.3 + k * 0.08, 0.35), b = P(0.36 + k * 0.08, -0.35); x.moveTo(a[0] - 4, a[1]); x.lineTo(b[0], b[1]); x.lineTo(a[0] + 4, a[1]); x.fill(); }
+      else { const a = P(-0.62, 0.22), b = P(0.62, 0.02); x.beginPath(); x.moveTo(a[0], a[1]); for (let i = 0; i <= 20; i++) x.lineTo(a[0] + (b[0] - a[0]) * i / 20, a[1] + R(-4, 4)); x.lineTo(b[0], b[1]); for (let i = 20; i >= 0; i--) x.lineTo(a[0] + (b[0] - a[0]) * i / 20, b[1] + R(-4, 4)); x.fill(); }
+      x.restore(); mottle(x, W, H, 0.08, 'overlay');
+    }
+    // scalp under the hair
+    if (o.hair !== undefined && !o.bald) {
+      x.save(); x.fillStyle = hex(o.hair, 0.8); x.beginPath();
+      const pts = []; for (let i = 0; i <= 40; i++) { const a = -0.95 + i / 40 * 1.9; pts.push(P(Math.sin(a) * 0.98, 0.55 + Math.cos(a) * 0.12 - Math.abs(a) * 0.35)); }
+      x.moveTo(0, 0); x.lineTo(W, 0); x.lineTo(W, H * 0.62); x.lineTo(pts[pts.length - 1][0] + 30, H * 0.6); pts.slice().reverse().forEach(([px, py]) => x.lineTo(px, py)); x.lineTo(0, H * 0.58); x.closePath(); x.fill();
+      for (let i = 0; i < 2500; i++) { const px = rnd() * W, py = rnd() * H * 0.45; x.strokeStyle = hex(o.hair, R(0.5, 1.3), 0.5); x.lineWidth = 1; x.beginPath(); x.moveTo(px, py); x.lineTo(px + R(-4, 4), py + R(8, 18)); x.stroke(); }
+      x.restore();
+    }
+    // pores: fine bumps (height only) + faint color
+    for (let i = 0; i < 26000; i++) { const px = rnd() * W, py = rnd() * H, r = R(0.6, 1.4); hx.fillStyle = `rgba(0,0,0,${R(0.08, 0.25)})`; hx.fillRect(px, py, r, r); }
+    grain(x, W, H, 6000, 0.025);
+    return { c, n_src: hc, n: undead ? 6 : 3, rough: undead ? 0.85 : 0.52, bright: 1.18,
+      phys: undead ? null : { sheen: 0.3, sheenRoughness: 0.5, sheenColor: new THREE.Color(0.9, 0.5, 0.42), clearcoat: 0.04, clearcoatRoughness: 0.5 } };
+  });
+}
+
+export function eyeMaterial(iris = 0x5a7a9a) {
+  return cached('eye' + iris, () => {
+    const W = 256, H = 128, [c, x] = cv(W, H);
+    x.fillStyle = '#efe8e2'; x.fillRect(0, 0, W, H);
+    const g0 = x.createRadialGradient(64, 64, 20, 64, 64, 90); g0.addColorStop(0, 'rgba(255,255,255,0)'); g0.addColorStop(1, 'rgba(200,140,130,0.6)'); x.fillStyle = g0; x.fillRect(0, 0, W, H);
+    x.strokeStyle = 'rgba(190,60,60,0.35)'; x.lineWidth = 0.8; for (let i = 0; i < 24; i++) { let px = 64 + Math.cos(i) * 60, py = 64 + Math.sin(i * 1.7) * 50; x.beginPath(); x.moveTo(px, py); for (let k = 0; k < 4; k++) { px += (64 - px) * 0.15 + R(-5, 5); py += (64 - py) * 0.15 + R(-5, 5); x.lineTo(px, py); } x.stroke(); }
+    // iris centred on +Z (u = 0.25)
+    const ir = 15;
+    const g = x.createRadialGradient(64, 64, 2, 64, 64, ir); g.addColorStop(0, hex(iris, 0.6)); g.addColorStop(0.5, hex(iris, 1.2)); g.addColorStop(0.9, hex(iris, 0.8)); g.addColorStop(1, 'rgba(20,20,20,1)');
+    x.fillStyle = g; x.beginPath(); x.ellipse(64, 64, ir, ir * 2, 0, 0, 7); x.fill();
+    x.strokeStyle = hex(iris, 1.6, 0.5); x.lineWidth = 0.8; for (let i = 0; i < 60; i++) { const a = i / 60 * 6.28; x.beginPath(); x.moveTo(64 + Math.cos(a) * 5, 64 + Math.sin(a) * 10); x.lineTo(64 + Math.cos(a) * ir * 0.9, 64 + Math.sin(a) * ir * 1.8); x.stroke(); }
+    x.fillStyle = '#050505'; x.beginPath(); x.ellipse(64, 64, 5.5, 11, 0, 0, 7); x.fill();
+    return new THREE.MeshPhysicalMaterial({ map: tex(c, false), roughness: 0.08, clearcoat: 1, clearcoatRoughness: 0.02 });
+  });
+}
+
+// hair "card" texture: transparent background with individual strands (alpha-tested)
+export function hairCardMaterial(col) {
+  return material('hcard' + col, () => {
+    const W = 256, H = 512, [c, x] = cv(W, H);
+    x.clearRect(0, 0, W, H);
+    for (let i = 0; i < 420; i++) {
+      const px = R(4, W - 4), len = R(0.55, 1) * H, w = R(1.2, 3.2), k = R(0.75, 1.5);
+      const grd = x.createLinearGradient(0, 0, 0, len); grd.addColorStop(0, hex(col, k * 0.7, 1)); grd.addColorStop(0.75, hex(col, k, 0.95)); grd.addColorStop(1, hex(col, k * 1.2, 0));
+      x.strokeStyle = grd; x.lineWidth = w; x.beginPath(); x.moveTo(px, 0);
+      const wv = R(-10, 10); x.bezierCurveTo(px + wv, len * 0.33, px - wv, len * 0.66, px + R(-6, 6), len); x.stroke();
+    }
+    return { c, n: 0, rough: 0.55, alphaTest: 0.4, side: THREE.DoubleSide, bright: 1.3, phys: { sheen: 0.35, sheenRoughness: 0.4, sheenColor: new THREE.Color(col).lerp(new THREE.Color(0xffffff), 0.25) } };
   });
 }

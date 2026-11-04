@@ -66,8 +66,30 @@ function insert(c, minx, maxx, minz, maxz) {
       const k = ckey(cx, cz); if (!cells.has(k)) cells.set(k, []); cells.get(k).push(c);
     }
 }
-export function addCircle(x, z, r) { const c = { t: 0, x, z, r }; insert(c, x - r, x + r, z - r, z + r); return c; }
-export function addBox(x, z, hw, hd) { const c = { t: 1, x0: x - hw, x1: x + hw, z0: z - hd, z1: z + hd }; insert(c, c.x0, c.x1, c.z0, c.z1); return c; }
+// colliders also carry a top height so projectiles and line-of-sight checks can be blocked by them
+export function addCircle(x, z, r, h = 9) { const c = { t: 0, x, z, r, top: ground(x, z) + h }; insert(c, x - r, x + r, z - r, z + r); return c; }
+export function addBox(x, z, hw, hd, h = 7) { const c = { t: 1, x0: x - hw, x1: x + hw, z0: z - hd, z1: z + hd, top: ground(x, z) + h }; insert(c, c.x0, c.x1, c.z0, c.z1); return c; }
+
+// is a point inside solid scenery (building, tree trunk, rock, wall)?
+export function pointBlocked(x, y, z) {
+  const list = cells.get(ckey(Math.floor(x / CELL), Math.floor(z / CELL)));
+  if (!list) return false;
+  for (const c of list) {
+    if (c.dead || y > c.top) continue;
+    if (c.t === 0 ? (x - c.x) ** 2 + (z - c.z) ** 2 < c.r * c.r : x > c.x0 && x < c.x1 && z > c.z0 && z < c.z1) return true;
+  }
+  return false;
+}
+// clear line of sight between two points (terrain and scenery both block)
+export function lineOfSight(a, b, step = 0.7) {
+  const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z, d = Math.hypot(dx, dy, dz);
+  const n = Math.floor(d / step);
+  for (let i = 1; i < n; i++) {
+    const t = i / n, x = a.x + dx * t, y = a.y + dy * t, z = a.z + dz * t;
+    if (y < ground(x, z) + 0.1 || pointBlocked(x, y, z)) return false;
+  }
+  return true;
+}
 
 export function resolveCollision(pos, r) {
   const list = cells.get(ckey(Math.floor(pos.x / CELL), Math.floor(pos.z / CELL)));
@@ -263,7 +285,7 @@ function campfire(scene, x, z, color = 0xff7a2a, withLight = true) {
   const f = new THREE.Mesh(new THREE.ConeGeometry(0.42, 1.2, 7), mat(color, { basic: true })); f.position.set(x, y + 0.7, z); scene.add(f); G.flames.push(f);
   const f2 = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.8, 6), mat(0xffe08a, { basic: true })); f2.position.set(x, y + 0.55, z); scene.add(f2); G.flames.push(f2);
   if (withLight) { const L = new THREE.PointLight(color, 40, 26, 2); L.position.set(x, y + 2, z); scene.add(L); G.lights.push({ l: L, base: 40 }); }
-  addCircle(x, z, 1.0);
+  addCircle(x, z, 1.0, 0.6);
 }
 
 function chestMesh(scene, x, z, rotY = 0) {
@@ -277,7 +299,7 @@ function chestMesh(scene, x, z, rotY = 0) {
     const band = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.62, 0.84), M.iron(0x8a7040)); band.position.set(sx, 0.3, 0); g.add(band);
     const lb = new THREE.Mesh(new THREE.TorusGeometry(0.41, 0.03, 4, 12, Math.PI), M.iron(0x8a7040)); lb.rotation.y = Math.PI / 2; lb.position.set(sx, 0, 0.4); lid.add(lb);
   }
-  addBox(x, z, 0.6, 0.6);
+  addBox(x, z, 0.6, 0.6, 0.9);
   return { g, lid };
 }
 
@@ -363,7 +385,7 @@ function scatterVegetation(scene) {
     if (slope(x, z) < 1.2 && R() < 0.5) continue;
     Q.setFromEuler(E.set(R() * 0.6, R() * 6.28, R() * 0.6)); S.set(s, s * (0.7 + R() * 0.5), s * (0.8 + R() * 0.4)); P.set(x, h + s * 0.15, z); Mx.compose(P, Q, S);
     col.setHSL(0.08, 0.05, 0.8 + R() * 0.2); rocks.setMatrixAt(nk, Mx); rocks.setColorAt(nk++, col);
-    if (big) addCircle(x, z, s * 0.85);
+    if (big) addCircle(x, z, s * 0.85, s * 1.1);
   }
   for (let t = 0; t < 6000 && nb < 700; t++) {
     const x = (R() * 2 - 1) * (HALF - 5), z = (R() * 2 - 1) * (HALF - 5);
@@ -459,19 +481,19 @@ function buildAshvale(scene) {
   addMesh(scene, new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.8, 1.4), M.planks(0xd8b890)), -18.4, sy + 2.6, 1.6);
   // forge
   const fy = ground(14, 20);
-  addMesh(scene, new THREE.Mesh(new THREE.BoxGeometry(2, 1.2, 2), M.stone()), 14, fy + 0.6, 20); addBox(14, 20, 1.1, 1.1);
+  addMesh(scene, new THREE.Mesh(new THREE.BoxGeometry(2, 1.2, 2), M.stone()), 14, fy + 0.6, 20); addBox(14, 20, 1.1, 1.1, 1.3);
   const coal = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.2, 1.2), mat(0xff5a1a, { basic: true })); coal.position.set(14, fy + 1.25, 20); scene.add(coal); G.flames.push(coal);
   const fl = new THREE.PointLight(0xff6a2a, 25, 16, 2); fl.position.set(14, fy + 2.5, 20); scene.add(fl); G.lights.push({ l: fl, base: 25 });
   addMesh(scene, new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.35, 0.7, 8), M.logs()), 11, fy + 0.35, 18);
-  addMesh(scene, new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.3, 0.45), M.iron(0x3a3a3a)), 11, fy + 0.85, 18); addCircle(11, 18, 0.5);
+  addMesh(scene, new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.3, 0.45), M.iron(0x3a3a3a)), 11, fy + 0.85, 18); addCircle(11, 18, 0.5, 1);
   // market stall
   const my = ground(-16, 16);
-  addMesh(scene, new THREE.Mesh(new THREE.BoxGeometry(4, 1, 1.2), M.planks(0xd8c0a0)), -16, my + 0.5, 16); addBox(-16, 16, 2.1, 0.7);
+  addMesh(scene, new THREE.Mesh(new THREE.BoxGeometry(4, 1, 1.2), M.planks(0xd8c0a0)), -16, my + 0.5, 16); addBox(-16, 16, 2.1, 0.7, 1.1);
   for (const sx of [-1.9, 1.9]) for (const sz of [15.5, 18.5]) addMesh(scene, new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.08, 2.8, 6), M.logs()), -16 + sx, my + 1.4, sz);
   const cloth = new THREE.Mesh(new THREE.PlaneGeometry(4.4, 3.6, 4, 4), M.cloth(0xb04030)); cloth.rotation.x = -Math.PI / 2 + 0.15; addMesh(scene, cloth, -16, my + 2.8, 17);
   for (let i = 0; i < 4; i++) addMesh(scene, new THREE.Mesh(new THREE.SphereGeometry(0.2, 10, 8), mat([0xc84a2a, 0x8ab84a, 0xe8c84a, 0x7a4ac8][i], { roughness: 0.5 })), -17.5 + i, my + 1.2, 16);
-  for (const [x, z] of [[-19, 3], [-19.5, 4.5], [18, -2], [5, 18]]) { addMesh(scene, new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9), M.planks(0xd8b890)), x, ground(x, z) + 0.45, z); addCircle(x, z, 0.6); }
-  for (const [x, z] of [[-20, 1.5], [17, -3.5]]) { addMesh(scene, new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 1.0, 12), M.planks(0xc8a070)), x, ground(x, z) + 0.5, z); addCircle(x, z, 0.5); }
+  for (const [x, z] of [[-19, 3], [-19.5, 4.5], [18, -2], [5, 18]]) { addMesh(scene, new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9), M.planks(0xd8b890)), x, ground(x, z) + 0.45, z); addCircle(x, z, 0.6, 1); }
+  for (const [x, z] of [[-20, 1.5], [17, -3.5]]) { addMesh(scene, new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 1.0, 12), M.planks(0xc8a070)), x, ground(x, z) + 0.5, z); addCircle(x, z, 0.5, 1.1); }
   // palisade
   const gapAngles = ROADS.map(r => Math.atan2(r[1][1], r[1][0]));
   const postGeo = new THREE.CylinderGeometry(0.3, 0.36, 4.2, 7); postGeo.translate(0, 1.6, 0);
@@ -486,7 +508,7 @@ function buildAshvale(scene) {
     for (const ga of gapAngles) { let d = Math.abs(a - ga); d = Math.min(d, Math.PI * 2 - d); if (d < 0.11) gate = true; }
     if (gate) continue;
     const x = Math.cos(a) * R, z = Math.sin(a) * R;
-    Mx.makeRotationY(i * 1.7).setPosition(x, ground(x, z) - 0.6 - (i % 3) * 0.15, z); posts.setMatrixAt(n++, Mx); addCircle(x, z, 0.4);
+    Mx.makeRotationY(i * 1.7).setPosition(x, ground(x, z) - 0.6 - (i % 3) * 0.15, z); posts.setMatrixAt(n++, Mx); addCircle(x, z, 0.4, 3.8);
   }
   posts.count = n; scene.add(posts);
   for (const ga of gapAngles) for (const s of [-1, 1]) { const a = ga + s * 0.135; torch(scene, Math.cos(a) * (R - 1.2), Math.sin(a) * (R - 1.2), 3); }
@@ -510,9 +532,9 @@ function buildRedfang(scene) {
     const a = i / 70 * Math.PI * 2; let d = Math.abs(a - (open + Math.PI * 2) % (Math.PI * 2)); d = Math.min(d, Math.PI * 2 - d);
     if (d < 0.22) continue;
     const r = 21, x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
-    const s = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.2, 3.2, 6), stake); s.rotation.set(Math.cos(a) * 0.3, 0, -Math.sin(a) * 0.3); addMesh(scene, s, x, ground(x, z) + 1.2, z); addCircle(x, z, 0.5);
+    const s = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.2, 3.2, 6), stake); s.rotation.set(Math.cos(a) * 0.3, 0, -Math.sin(a) * 0.3); addMesh(scene, s, x, ground(x, z) + 1.2, z); addCircle(x, z, 0.5, 2.6);
   }
-  for (const [x, z] of [[cx - 2, cz + 13], [cx + 2, cz - 12], [cx - 13, cz + 3]]) { addMesh(scene, new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), M.planks(0xc8a880)), x, ground(x, z) + 0.5, z); addCircle(x, z, 0.7); }
+  for (const [x, z] of [[cx - 2, cz + 13], [cx + 2, cz - 12], [cx - 13, cz + 3]]) { addMesh(scene, new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), M.planks(0xc8a880)), x, ground(x, z) + 0.5, z); addCircle(x, z, 0.7, 1); }
 }
 
 function buildBarrow(scene) {
@@ -532,7 +554,7 @@ function buildBarrow(scene) {
   for (const sx of [-1, 1]) {
     addMesh(scene, new THREE.Mesh(new THREE.BoxGeometry(1.4, 1, 3), M.stone(0xd8d4cc)), cx + sx * 5, y0 + 0.8, cz - 6);
     addMesh(scene, new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.2, 3.2), M.stone(0xc0bcb4)), cx + sx * 5, y0 + 1.4, cz - 6);
-    addBox(cx + sx * 5, cz - 6, 0.8, 1.6);
+    addBox(cx + sx * 5, cz - 6, 0.8, 1.6, 1.5);
   }
   for (const sx of [-1, 1]) {
     const x = cx + sx * 6, z = cz - 12;
@@ -596,7 +618,7 @@ function buildTower(scene) {
   for (let i = 0; i < 8; i++) { const a = i / 8 * Math.PI * 2; const c = new THREE.Mesh(new THREE.BoxGeometry(1, 1.2, 1), M.stone()); c.rotation.y = -a; addMesh(scene, c, cx + Math.cos(a) * 3, y0 + 13, cz - 6 + Math.sin(a) * 3); }
   addMesh(scene, new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.6, 0.3), M.planks(0x9a7a64)), cx, y0 + 1.3, cz - 2.55);
   addCircle(cx, cz - 6, 3.6);
-  for (const [x, z, w] of [[cx - 7, cz + 2, 5], [cx + 7, cz - 1, 4]]) { addMesh(scene, new THREE.Mesh(new THREE.BoxGeometry(w, 2, 1), M.stone(0xc8c4bc)), x, ground(x, z) + 0.8, z); addBox(x, z, w / 2, 0.5); }
+  for (const [x, z, w] of [[cx - 7, cz + 2, 5], [cx + 7, cz - 1, 4]]) { addMesh(scene, new THREE.Mesh(new THREE.BoxGeometry(w, 2, 1), M.stone(0xc8c4bc)), x, ground(x, z) + 0.8, z); addBox(x, z, w / 2, 0.5, 1.8); }
   campfire(scene, cx - 2, cz + 5, 0xff7a2a, false);
 }
 

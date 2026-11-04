@@ -26,7 +26,7 @@ git remote add origin https://github.com/YOUR-USERNAME/ashvale.git
 git push -u origin main
 ```
 
-Saves are stored in each player's browser for your Pages address. The game needs a keyboard and mouse.
+Saves are stored in each player's browser for your Pages address. The game needs a keyboard and mouse. Loading takes a few seconds while textures are generated.
 
 Slow computer? Switch **Graphics: Low** on the title screen, or add `?quality=low` to the address.
 
@@ -66,7 +66,7 @@ Trainers in Ashvale teach skills for gold (5 sessions per level): Brenna, Captai
 
 - **World:** a 600×600 valley with forests, lakes, causeway roads, snowy peaks, a walled village and a day/night cycle
 - **Graphics:** textured terrain that blends grass, dirt, rock, sand and snow; wind-blown grass; textured timber, stone and shingle buildings; physically based lighting with sky reflections; shadows, bloom, clouds and stars. Every texture is generated in code, so the game ships no image files
-- **Characters:** painted faces, outfits with embroidered trim, stitched leather, chainmail, plate, fur mantles, helmets, hoods and draugr wrappings, all with surface detail (normal maps)
+- **Characters:** skinned bodies that bend smoothly at every joint; sculpted heads (brow, sockets, cheekbones, nose, lips, jaw) with glossy eyeballs and blinking eyelids; skin with pores, natural flush and age lines; strand-card hair and beards; hands with fingers; fabric with sheen, stitched leather, chainmail, plate, fur, helmets, hoods and draugr wrappings
 - **Animation:** jointed bodies (knees, elbows, spine) with walk/run cycles, combat stances, attacks with wind-up, strike and follow-through, hit flinches, staggers and collapsing deaths; first-person 3-hit sword combos, charged power attacks, hit-stop and screen shake
 - **9 locations to discover:** Ashvale, Redfang Camp, Hollowmere Barrow, Windward Shrine, Frostspire Summit, the Guardian Stones, Silverpine Lake, the Old Watchtower, Hunter's Cabin
 - **Main quest:** *The Dragon of Frostspire* (7 stages, ending in a dragon fight)
@@ -92,7 +92,8 @@ npm run build   # rebuilds the single-file index.html for deployment
 | `src/data.js` | **Start here.** Locations, items, weapons, armor, skills, perk trees, spells and powers, enemy stats, spawn points, chests, quests |
 | `src/textures.js` | Procedural terrain/scenery textures and the triplanar scenery material |
 | `src/charTex.js` | Painted character textures: faces, outfits, armor, hair, fur, dragon scales |
-| `src/models.js` | Character, animal and dragon models plus their animation rigs |
+| `src/human.js` | Realistic humans: skinned body, sculpted head, eyes, hair and beard cards, hands |
+| `src/models.js` | Character gear, animals, the dragon, and all animation rigs |
 | `src/logic.js` | Dialogue trees, quest logic, shop, loot, save/load |
 | `src/world.js` | Terrain generation, village and dungeon layouts, trees, sky and lighting |
 | `src/entities.js` | Enemy AI, the dragon's flight behavior, NPC placement |
