@@ -4,27 +4,8 @@ A first-person fantasy RPG in the spirit of Skyrim that runs entirely in the bro
 
 ![Villagers of Ashvale](docs/characters.png)
 
-**Play:** `https://YOUR-USERNAME.github.io/ashvale/` (replace this with your Pages link once it's live)
+**Play:** `(https://pilotd98.github.io/Ashvale/)` 
 
-## Deploy to GitHub Pages
-
-The whole game is the single file `index.html` in this folder. No build step is needed to deploy it.
-
-1. On github.com, click **+ → New repository**, name it (for example `ashvale`), make it **Public**, and click **Create repository**.
-2. On the new repo page, click **uploading an existing file**. Drag in **everything in this folder**, including the `.nojekyll` file. Then click **Commit changes**.
-   - On a Mac, press Cmd+Shift+. in Finder to show hidden files like `.nojekyll`. It isn't strictly required, but it makes Pages publish faster.
-3. Go to **Settings → Pages**. Under *Build and deployment*, set **Source: Deploy from a branch**, **Branch: main**, **Folder: / (root)**, then **Save**.
-4. After a minute or two, the game is live at `https://YOUR-USERNAME.github.io/REPO-NAME/`. Settings → Pages shows the exact link.
-
-**To update later:** run `npm run build` if you changed the source, then upload the new `index.html` (*Add file → Upload files*) and commit.
-
-**If you use git from the command line:**
-```bash
-git init && git add . && git commit -m "Ashvale"
-git branch -M main
-git remote add origin https://github.com/YOUR-USERNAME/ashvale.git
-git push -u origin main
-```
 
 Saves are stored in each player's browser for your Pages address. The game needs a keyboard and mouse. Loading takes a few seconds while textures are generated.
 
